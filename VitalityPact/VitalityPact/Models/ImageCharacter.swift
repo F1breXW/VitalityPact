@@ -15,6 +15,7 @@ struct ImageCharacter: Identifiable, Codable, Equatable {
     let description: String
     let category: CharacterCategory
     let style: CharacterType  // 继承哪种对话风格
+    let unlockCost: Int       // 解锁所需金币数（0表示免费）
     
     /// 各健康等级对应的图片名称
     let images: [String: String]  // HealthLevel.rawValue -> imageName
@@ -70,6 +71,11 @@ class ImageCharacterManager: ObservableObject {
     static let shared = ImageCharacterManager()
     
     @Published var availableCharacters: [ImageCharacter] = []
+    @Published var unlockedCharacterIds: Set<String> = [] {
+        didSet {
+            saveUnlockedCharacters()
+        }
+    }
     @Published var selectedCharacterId: String? {
         didSet {
             UserDefaults.standard.set(selectedCharacterId, forKey: "selectedImageCharacterId")
@@ -89,6 +95,7 @@ class ImageCharacterManager: ObservableObject {
     private init() {
         loadSettings()
         loadBuiltInCharacters()
+        loadUnlockedCharacters()
     }
     
     private func loadSettings() {
@@ -96,16 +103,61 @@ class ImageCharacterManager: ObservableObject {
         useImageCharacter = UserDefaults.standard.bool(forKey: "useImageCharacter")
     }
     
+    private func loadUnlockedCharacters() {
+        if let data = UserDefaults.standard.data(forKey: "unlockedCharacterIds"),
+           let ids = try? JSONDecoder().decode(Set<String>.self, from: data) {
+            unlockedCharacterIds = ids
+        }
+    }
+    
+    private func saveUnlockedCharacters() {
+        if let data = try? JSONEncoder().encode(unlockedCharacterIds) {
+            UserDefaults.standard.set(data, forKey: "unlockedCharacterIds")
+        }
+    }
+    
+    /// 检查角色是否已解锁
+    func isUnlocked(_ character: ImageCharacter) -> Bool {
+        return character.unlockCost == 0 || unlockedCharacterIds.contains(character.id)
+    }
+    
+    /// 解锁角色
+    func unlock(_ character: ImageCharacter, goldCoins: Int) -> Bool {
+        // 检查是否已解锁
+        if isUnlocked(character) {
+            return true
+        }
+        
+        // 检查金币是否足够
+        if goldCoins < character.unlockCost {
+            return false
+        }
+        
+        // 解锁角色
+        unlockedCharacterIds.insert(character.id)
+        return true
+    }
+    
+    /// 调试模式：解锁所有角色
+    func unlockAllCharacters() {
+        for character in availableCharacters {
+            if character.unlockCost > 0 {
+                unlockedCharacterIds.insert(character.id)
+            }
+        }
+    }
+    
     /// 加载内置角色
     private func loadBuiltInCharacters() {
         availableCharacters = [
-            // 可爱小狐狸
+            // 可爱小狐狸（需要金币解锁）
             ImageCharacter(
                 id: "fox",
                 name: "小狐狸·绒绒",
                 description: "温暖治愈的小狐狸，会用软软的尾巴安慰你",
                 category: .cute,
                 style: .pet,
+                unlockCost: 500,  // 需要500金币解锁
                 images: [
                     "0": "fox_critical",
                     "1": "fox_weak",
@@ -116,13 +168,14 @@ class ImageCharacterManager: ObservableObject {
                 themeColorHex: "#FF9500"
             ),
             
-            // 元气少女
+            // 元气少女（需要金币解锁）
             ImageCharacter(
                 id: "girl_genki",
                 name: "元气少女·小阳",
                 description: "活力满满的元气少女，用热情感染你",
                 category: .anime,
                 style: .warrior,
+                unlockCost: 1000,  // 需要1000金币解锁
                 images: [
                     "0": "girl_genki_critical",
                     "1": "girl_genki_weak",
@@ -133,13 +186,14 @@ class ImageCharacterManager: ObservableObject {
                 themeColorHex: "#FF6B6B"
             ),
             
-            // 温柔精灵
+            // 温柔精灵（需要金币解锁）
             ImageCharacter(
                 id: "elf",
                 name: "森林精灵·露娜",
                 description: "来自森林的精灵，用自然的力量守护你",
                 category: .anime,
                 style: .mage,
+                unlockCost: 1500,  // 需要1500金币解锁
                 images: [
                     "0": "elf_critical",
                     "1": "elf_weak",
@@ -150,13 +204,14 @@ class ImageCharacterManager: ObservableObject {
                 themeColorHex: "#4ECDC4"
             ),
             
-            // 智慧猫头鹰
+            // 智慧猫头鹰（需要金币解锁）
             ImageCharacter(
                 id: "owl",
                 name: "智者·欧罗",
                 description: "博学多识的猫头鹰，给你睿智的建议",
                 category: .cute,
                 style: .sage,
+                unlockCost: 800,  // 需要800金币解锁
                 images: [
                     "0": "owl_critical",
                     "1": "owl_weak",
@@ -167,13 +222,14 @@ class ImageCharacterManager: ObservableObject {
                 themeColorHex: "#5C6BC0"
             ),
             
-            // 像素勇者
+            // 像素勇者（需要金币解锁）
             ImageCharacter(
                 id: "pixel_hero",
                 name: "像素勇者",
                 description: "复古像素风格的小勇者，陪你一起冒险",
                 category: .pixel,
                 style: .warrior,
+                unlockCost: 600,  // 需要600金币解锁
                 images: [
                     "0": "pixel_hero_critical",
                     "1": "pixel_hero_weak",
@@ -184,13 +240,14 @@ class ImageCharacterManager: ObservableObject {
                 themeColorHex: "#9C27B0"
             ),
             
-            // 治愈小熊
+            // 治愈小熊（需要金币解锁）
             ImageCharacter(
                 id: "bear",
                 name: "抱抱熊·团团",
                 description: "软绵绵的小熊，随时给你一个温暖的拥抱",
                 category: .cute,
                 style: .mage,
+                unlockCost: 700,  // 需要700金币解锁
                 images: [
                     "0": "bear_critical",
                     "1": "bear_weak",

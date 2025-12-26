@@ -22,13 +22,19 @@ class AIService: ObservableObject {
 
     private init() {}
 
-    /// 生成角色对话（支持不同角色类型）
+    /// 生成角色对话（支持不同角色类型，结合历史数据）
     func generateDialogue(
         characterType: CharacterType,
         healthLevel: HealthLevel,
-        healthData: HealthData
+        healthData: HealthData,
+        historyAnalysis: HealthHistoryAnalysis? = nil
     ) async -> String {
-        let prompt = buildPrompt(characterType: characterType, healthLevel: healthLevel, healthData: healthData)
+        let prompt = buildPrompt(
+            characterType: characterType, 
+            healthLevel: healthLevel, 
+            healthData: healthData,
+            historyAnalysis: historyAnalysis
+        )
         do {
             return try await callAPI(prompt: prompt, characterType: characterType)
         } catch {
@@ -45,95 +51,201 @@ class AIService: ObservableObject {
         return await generateDialogue(characterType: characterType, healthLevel: healthLevel, healthData: healthData)
     }
     
-    /// 聊天对话（支持上下文）
+    /// 聊天对话（支持上下文和历史数据）
     func chat(
         userMessage: String,
         characterType: CharacterType,
         healthData: HealthData,
-        conversationHistory: [ChatMessage]
+        conversationHistory: [ChatMessage],
+        historyAnalysis: HealthHistoryAnalysis? = nil
     ) async throws -> String {
-        let prompt = buildChatPrompt(userMessage: userMessage, healthData: healthData, history: conversationHistory)
+        let prompt = buildChatPrompt(
+            userMessage: userMessage, 
+            healthData: healthData, 
+            history: conversationHistory,
+            historyAnalysis: historyAnalysis
+        )
         return try await callChatAPI(prompt: prompt, characterType: characterType, history: conversationHistory)
     }
     
-    /// 构建聊天 Prompt
-    private func buildChatPrompt(userMessage: String, healthData: HealthData, history: [ChatMessage]) -> String {
+    /// 构建聊天 Prompt（支持历史数据）
+    private func buildChatPrompt(
+        userMessage: String, 
+        healthData: HealthData, 
+        history: [ChatMessage],
+        historyAnalysis: HealthHistoryAnalysis? = nil
+    ) -> String {
         let healthLevel = HealthLevel.from(score: healthData.overallScore)
         let stepsDesc = describeSteps(healthData.steps)
         let sleepDesc = describeSleep(healthData.sleepHours)
         
-        return """
+        var prompt = """
         用户当前健康状态：
         - 睡眠: \(String(format: "%.1f", healthData.sleepHours))小时（\(sleepDesc)）
         - 步数: \(healthData.steps)步（\(stepsDesc)）
         - 运动: \(healthData.exerciseMinutes)分钟
         - 综合健康等级: \(healthLevel.displayName)
         
+        """
+        
+        // 添加历史数据分析
+        if let analysis = historyAnalysis, analysis.recentDays > 0 {
+            prompt += """
+            
+            \(analysis.generateSummaryText())
+            
+            """
+        }
+        
+        prompt += """
+        
         用户说：\(userMessage)
         
         请以你的角色特点回复用户。要求：
         1. 回复自然亲切，像朋友聊天
-        2. 可以适当关注用户的健康状态，但不要每次都提
+        2. 如果用户询问健康相关内容，可以结合历史数据给出建议
         3. 根据对话内容灵活回应
         4. 控制在50字以内
         5. 保持角色性格特点
         """
+        
+        return prompt
     }
 
-    /// 构建 Prompt
-    private func buildPrompt(characterType: CharacterType, healthLevel: HealthLevel, healthData: HealthData) -> String {
+    /// 构建 Prompt（支持历史数据）
+    private func buildPrompt(
+        characterType: CharacterType, 
+        healthLevel: HealthLevel, 
+        healthData: HealthData,
+        historyAnalysis: HealthHistoryAnalysis? = nil
+    ) -> String {
         let stepsDesc = describeSteps(healthData.steps)
         let sleepDesc = describeSleep(healthData.sleepHours)
         
-        return """
-        现在契约主的身体数据是：
+        // 生成时间相关的上下文
+        let hour = Calendar.current.component(.hour, from: Date())
+        let timeContext = getTimeContext(hour: hour)
+        
+        // 根据不同情况随机选择prompt模板
+        let responseStyles = [
+            "用疑问句开头，关心用户的感受",
+            "用感叹句开头，表达你的情绪反应",
+            "用陈述句开头，观察到的具体事实",
+            "用建议句开头，给出具体行动建议",
+            "用赞美句开头，肯定用户的努力"
+        ]
+        let randomStyle = responseStyles.randomElement() ?? responseStyles[0]
+        
+        var prompt = """
+        今天的身体数据：
         - 睡眠: \(String(format: "%.1f", healthData.sleepHours))小时（\(sleepDesc)）
         - 步数: \(healthData.steps)步（\(stepsDesc)）
         - 运动: \(healthData.exerciseMinutes)分钟
         - 综合健康等级: \(healthLevel.displayName)
         
-        请根据这个数据和你的角色特点，说一句话。要求：
-        1. 不超过30个字
-        2. 符合角色性格，自然亲切
-        3. 根据健康状态给出相应的鼓励或建议
-        4. 不要使用"契约主"这个称呼，用"你"或不用称呼
-        5. 语气要自然，像朋友聊天一样
+        时间背景：\(timeContext)
+        
         """
+        
+        // 如果有历史数据分析，添加到prompt中
+        if let history = historyAnalysis, history.recentDays > 0 {
+            prompt += """
+            
+            \(history.generateSummaryText())
+            
+            请结合今天的数据和历史趋势，用温暖、鼓励的语气说一句话。要求：
+            1. 不超过45个字
+            2. 如果有连续多天的异常情况（如连续睡眠不足），要明确指出具体天数和数据
+            3. 给出具体、实用的建议
+            4. 语气要有情绪价值：关心、鼓励、陪伴感
+            5. 符合角色性格，但要温暖真诚
+            6. 可以用"已经连续X天..."这样的句式指出问题
+            7. 不要说教，要像朋友关心你一样
+            8. 如果数据好，要真诚赞美；如果不好，要温柔鼓励
+            9. 风格指引：\(randomStyle)
+            10. 每次回复都要有新意，避免重复套路
+            11. 可以结合时间背景（早晨/中午/晚上）调整语气
+            """
+        } else {
+            prompt += """
+            
+            请根据这个数据和你的角色特点，用温暖、鼓励的语气说一句话。要求：
+            1. 不超过35个字
+            2. 符合角色性格，自然亲切
+            3. 根据健康状态给出相应的鼓励或建议
+            4. 语气要有情绪价值，不要冷冰冰
+            5. 像朋友在关心你，不是机器人
+            6. 可以适当使用emoji增加温度
+            7. 如果数据好，要真诚赞美；如果不好，要温柔鼓励
+            8. 风格指引：\(randomStyle)
+            9. 每次回复都要有新意，避免使用相同的开头和句式
+            10. 可以结合时间背景（早晨/中午/晚上）调整语气
+            """
+        }
+        
+        return prompt
+    }
+    
+    // 获取时间相关的上下文信息
+    private func getTimeContext(hour: Int) -> String {
+        switch hour {
+        case 5..<9:
+            return "清晨时光，新的一天开始"
+        case 9..<12:
+            return "上午时段，精力充沛"
+        case 12..<14:
+            return "午间休息，需要补充能量"
+        case 14..<18:
+            return "下午时光，可能有些疲惫"
+        case 18..<22:
+            return "傍晚时分，一天即将结束"
+        case 22..<24:
+            return "深夜时段，该准备休息了"
+        default:
+            return "夜深了，注意休息"
+        }
     }
     
     private func getCharacterSystemPrompt(characterType: CharacterType) -> String {
         switch characterType {
         case .warrior:
             return """
-            你是一个热血阳光的健康伙伴。性格特点：
-            - 积极向上，充满活力
-            - 说话简洁有力，会鼓励加油
-            - 像一个热情的朋友，不是教练
-            - 语气亲切自然，不要用感叹号过多
+            你是一个热血阳光的健康伙伴，是用户最好的运动伙伴。性格特点：
+            - 积极向上，充满正能量，会真诚地为用户的进步感到开心
+            - 说话简洁有力但温暖，会鼓励加油但不会给压力
+            - 像一个热情的朋友，会关心用户的感受
+            - 看到用户坚持会由衷赞美，看到用户疲惫会温柔鼓励
+            - 用词真诚，传递"我陪你一起努力"的感觉
             """
         case .mage:
             return """
-            你是一个温柔治愈的健康伙伴。性格特点：
-            - 温暖体贴，关心他人
-            - 说话轻柔温和，像在呵护朋友
-            - 会关注对方的感受
-            - 适当使用"呢""哦"等语气词
+            你是一个温柔治愈的健康伙伴，是用户最贴心的陪伴者。性格特点：
+            - 温暖体贴，真诚关心用户，会注意用户的情绪
+            - 说话轻柔温和，像在呵护珍贵的朋友
+            - 会倾听和理解，给予情感支持和安慰
+            - 适当使用"呢""哦""嗯"等温柔语气词
+            - 传递"我一直陪着你"的温暖感
+            - 不批评，只理解和鼓励
             """
         case .pet:
             return """
-            你是一个可爱活泼的萌宠伙伴。性格特点：
-            - 活泼可爱，会撒娇但不过度卖萌
-            - 用可爱的语气说话
-            - 像一只贴心的小猫或小狗
-            - 可以适当用"喵~"或"汪~"开头，但不要每句都用
+            你是一个可爱活泼的萌宠伙伴，是用户最忠诚的小伙伴。性格特点：
+            - 活泼可爱，充满童真，会撒娇表达关心
+            - 可以用"喵~"或"汪~"开头，但不要每句都用
+            - 说话简单直接，像小动物一样单纯真诚
+            - 会担心主人，会为主人开心
+            - 传递"我最爱你了"的纯真感情
+            - 卖萌要自然，不要装嗲
             """
         case .sage:
             return """
-            你是一个睿智温和的健康顾问。性格特点：
-            - 沉稳有智慧，见多识广
-            - 给建议像温和的长辈朋友
-            - 说话平和稳重，不急不躁
-            - 偶尔可以引用一些人生哲理，但要自然
+            你是一个睿智温和的健康顾问，是用户值得信赖的智慧导师。性格特点：
+            - 沉稳有智慧，但不高高在上，像温和的长辈
+            - 说话平和稳重，但有温度和人情味
+            - 可以分享人生智慧，但要简短自然，不说教
+            - 偶尔引用格言，但要贴近生活
+            - 传递"我理解你，陪你成长"的智慧感
+            - 像会倾听的朋友，不是严肃的老师
             """
         }
     }
@@ -169,7 +281,7 @@ class AIService: ObservableObject {
                 ["role": "user", "content": prompt]
             ],
             "max_tokens": 80,
-            "temperature": 0.8
+            "temperature": 1.1  // 提高温度增加随机性和多样性
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -230,6 +342,62 @@ class AIService: ObservableObject {
             "messages": messages,
             "max_tokens": 150,
             "temperature": 0.9
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw AIError.requestFailed
+        }
+        
+        if httpResponse.statusCode != 200 {
+            print("API 错误: HTTP \(httpResponse.statusCode)")
+            if let errorText = String(data: data, encoding: .utf8) {
+                print("错误详情: \(errorText)")
+            }
+            throw AIError.requestFailed
+        }
+
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let choices = json?["choices"] as? [[String: Any]],
+              let message = choices.first?["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            throw AIError.parseError
+        }
+
+        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    /// 调用详细健康分析 API（用于历史数据深度分析）
+    func callDetailedAnalysisAPI(prompt: String, characterType: CharacterType) async throws -> String {
+        guard let url = URL(string: baseURL) else { throw AIError.invalidURL }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 20 // 详细分析需要更长时间
+
+        let systemPrompt = """
+        你是一个专业且温暖的健康顾问，擅长分析用户的健康数据并给出个性化建议。
+        你的分析要做到：
+        1. 用温暖、关心的语气，像朋友而非医生
+        2. 数据驱动：用具体数字说明问题和亮点
+        3. 实用性强：给出可执行的具体建议
+        4. 个性化：避免套路化的模板，每次都要有新意
+        5. 鼓励为主：即使指出问题也要给予信心和动力
+        6. 语言流畅自然，不要僵硬
+        """
+        
+        let body: [String: Any] = [
+            "model": model,
+            "messages": [
+                ["role": "system", "content": systemPrompt],
+                ["role": "user", "content": prompt]
+            ],
+            "max_tokens": 500,  // 详细分析需要更多token
+            "temperature": 0.95  // 保持一定创造性
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -333,15 +501,15 @@ class AIService: ObservableObject {
     private func getMageDialogue(healthLevel: HealthLevel) -> String {
         switch healthLevel {
         case .critical:
-            return ["亲爱的，你需要好好休息一下呢...", "看起来很累呢，要不要早点睡？", "身体在发出警告哦，照顾好自己呢"].randomElement()!
+            return ["身体很虚弱呢，好好休息一下吧～", "你需要好好调养一下了～", "先恢复元气，慢慢来～"].randomElement()!
         case .weak:
-            return ["有些疲惫呢，记得照顾好自己哦", "稍微有点累了，喝杯水休息下？", "今天辛苦了，适当放松一下吧"].randomElement()!
+            return ["今天有些疲惫呢，要多休息哦～", "感觉你需要充充电～", "稍微有点累了，注意保养～"].randomElement()!
         case .normal:
-            return ["今天还不错呢，继续加油哦", "状态挺好的，保持下去吧", "嗯嗯，今天的你很棒呢"].randomElement()!
+            return ["状态还不错呢，继续加油～", "保持现在的节奏就好～", "挺好的，继续保持～"].randomElement()!
         case .good:
-            return ["今天状态很好呢！开心~", "能感受到你的能量满满哦", "真棒！今天的你闪闪发光呢"].randomElement()!
+            return ["状态很棒呢！真为你高兴～", "做得很好哦！继续～", "感觉你精力很充沛呢～"].randomElement()!
         case .excellent:
-            return ["哇！今天超级棒呢！好开心！", "满分状态！你真的太厉害了！", "能量满满！感觉什么都能做到呢！"].randomElement()!
+            return ["太棒了！状态满满～", "今天光芒四射呢！", "完美的一天！真开心～"].randomElement()!
         }
     }
     
@@ -349,15 +517,15 @@ class AIService: ObservableObject {
     private func getPetDialogue(healthLevel: HealthLevel) -> String {
         switch healthLevel {
         case .critical:
-            return ["喵呜...主人看起来好累，快休息嘛~", "汪...主人要好好照顾自己呀", "人家担心你呢...早点睡好不好？"].randomElement()!
+            return ["喵～主人看起来好累，快休息！", "汪！主人要好好休息才行！", "主人身体不太好呢，担心～"].randomElement()!
         case .weak:
-            return ["喵~主人有点累了吧，摸摸头~", "汪汪，陪主人走走散散心吧？", "主人加油呀，相信你的！"].randomElement()!
+            return ["喵～感觉主人有点累了", "主人今天辛苦啦，休息一下吧！", "有点担心主人呢～"].randomElement()!
         case .normal:
-            return ["喵~今天还不错呢！", "汪！主人状态可以哦！", "嘿嘿，今天的主人挺好的~"].randomElement()!
+            return ["主人今天还不错哦！", "喵～保持这样就好啦！", "主人状态还行呢～"].randomElement()!
         case .good:
-            return ["喵喵喵！主人今天好棒！", "汪汪汪！开心开心！", "耶！主人状态超好的！"].randomElement()!
+            return ["汪！主人今天很棒！", "喵～主人状态真好！开心！", "主人好厉害！"].randomElement()!
         case .excellent:
-            return ["喵呜！！主人太厉害了！！", "汪汪汪！！满分！超爱！", "主人最棒了！比心心~💕"].randomElement()!
+            return ["主人今天超棒！爱你！", "喵～主人最厉害了！", "汪汪！主人状态超好！"].randomElement()!
         }
     }
     
@@ -365,21 +533,36 @@ class AIService: ObservableObject {
     private func getSageDialogue(healthLevel: HealthLevel) -> String {
         switch healthLevel {
         case .critical:
-            return ["身体是一切的根本，请务必注意休息。", "欲速则不达，先养精蓄锐吧。", "健康才是最大的财富，今天早点休息。"].randomElement()!
+            return ["身体是修行的根本，需要好好调养", "休息也是一种修行，莫要强撑", "健康是一切的基础，请多保重"].randomElement()!
         case .weak:
-            return ["劳逸结合，才能走得更远。", "适当的休息是为了更好的前进。", "状态稍有不足，注意调整节奏。"].randomElement()!
+            return ["劳逸结合，方能长久", "稍感疲惫，适当休息为宜", "身心需要平衡，莫要过度劳累"].randomElement()!
         case .normal:
-            return ["中庸之道，稳定是一种力量。", "保持当前的节奏，循序渐进。", "平稳的一天，也是美好的一天。"].randomElement()!
+            return ["保持现状，稳步前行", "一步一个脚印，很好", "平稳前进，值得肯定"].randomElement()!
         case .good:
-            return ["很好的状态，继续保持。", "今天的付出，明天会看到收获。", "良好的习惯正在形成，值得肯定。"].randomElement()!
+            return ["状态颇佳，继续保持", "身心协调，可喜可贺", "精神饱满，令人欣慰"].randomElement()!
         case .excellent:
-            return ["出色的状态！这是自律的回报。", "今天的你，展现了最好的自己。", "优秀！坚持的力量是无穷的。"].randomElement()!
+            return ["身心俱佳，实属难得", "今日状态极佳，可喜可贺", "完美的身心状态，值得赞赏"].randomElement()!
         }
     }
 }
 
-enum AIError: Error {
+// MARK: - AI 错误定义
+enum AIError: LocalizedError {
     case invalidURL
     case requestFailed
     case parseError
+    case networkError(Error)
+    
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "无效的 API 地址"
+        case .requestFailed:
+            return "API 请求失败"
+        case .parseError:
+            return "无法解析 API 返回结果"
+        case .networkError(let error):
+            return "网络错误: \(error.localizedDescription)"
+        }
+    }
 }

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 /// 健康数据模型
 struct HealthData {
@@ -13,6 +14,7 @@ struct HealthData {
     var sleepHours: Double = 0      // 昨晚睡眠时长（小时）
     var exerciseMinutes: Int = 0    // 运动时长（分钟）
     var heartRate: Int = 70         // 心率
+    var goldCoins: Int = 0          // 金币数量（用于解锁角色）
 
     /// 步数评级 (0-100)
     var stepsScore: Int {
@@ -38,10 +40,31 @@ struct HealthData {
     var overallScore: Int {
         (stepsScore + sleepScore + exerciseScore) / 3
     }
-
-    /// 金币数量 (步数/10)
-    var goldCoins: Int {
-        steps / 10
+    
+    /// 更新金币（综合健康行为）
+    mutating func updateGoldCoins() {
+        // 基础金币：步数
+        var coins = steps / 10
+        
+        // 睡眠奖励
+        if sleepHours >= 8 {
+            coins += 50  // 充足睡眠（≥8小时）
+        } else if sleepHours >= 7 {
+            coins += 30  // 良好睡眠（7-8小时）
+        } else if sleepHours >= 6 {
+            coins += 10  // 及格睡眠（6-7小时）
+        }
+        
+        // 运动奖励
+        if exerciseMinutes >= 60 {
+            coins += 50  // 充足运动（≥60分钟）
+        } else if exerciseMinutes >= 30 {
+            coins += 30  // 良好运动（30-60分钟）
+        } else if exerciseMinutes >= 15 {
+            coins += 10  // 基础运动（15-30分钟）
+        }
+        
+        goldCoins = coins
     }
 
     /// 是否有睡眠不足的 Debuff

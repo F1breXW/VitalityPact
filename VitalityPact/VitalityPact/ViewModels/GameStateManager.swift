@@ -17,14 +17,85 @@ class GameStateManager: ObservableObject {
     @Published var currentDialogue: String = "欢迎来到元气契约！点击我开始互动~"
     @Published var isLoadingDialogue = false
     @Published var showChestAnimation = false
+    
+    // 伙伴成长系统
+    @Published var currentPartnerAttributes: PartnerAttributes?
+    @Published var showLevelUpAnimation = false
+    @Published var levelUpInfo: (oldLevel: Int, newLevel: Int)?
 
     private var cancellables = Set<AnyCancellable>()
     private let aiService = AIService.shared
+    let healthHistory = HealthHistoryManager.shared  // 改为public，供HealthHistoryView访问
+    private let partnerAttributes = PartnerAttributesManager.shared
+    
+    private var lastProcessedDate: Date?
 
     private init() {
         setupHealthDataObserver()
+        loadCurrentPartnerAttributes()
         // 初始化时生成欢迎对话
         generateInitialDialogue()
+        // 检查是否需要处理今日数据
+        checkAndProcessDailyData()
+    }
+    
+    /// 加载当前伙伴属性
+    func loadCurrentPartnerAttributes() {
+        let partnerId = getCurrentPartnerId()
+        currentPartnerAttributes = partnerAttributes.getAttributes(for: partnerId)
+    }
+    
+    /// 获取当前伙伴ID
+    private func getCurrentPartnerId() -> String {
+        if ImageCharacterManager.shared.useImageCharacter,
+           let character = ImageCharacterManager.shared.selectedCharacter {
+            return character.id
+        } else {
+            return UserSettings.shared.selectedCharacterType.rawValue
+        }
+    }
+    
+    /// 检查并处理今日数据
+    private func checkAndProcessDailyData() {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        
+        // 如果今天还没处理过
+        if let lastDate = lastProcessedDate {
+            if !calendar.isDate(lastDate, inSameDayAs: today) {
+                processDailyRewards()
+            }
+        } else {
+            // 首次运行
+            if !healthHistory.hasTodayRecord() {
+                processDailyRewards()
+            }
+        }
+    }
+    
+    /// 处理每日奖励和数据记录
+    func processDailyRewards() {
+        let healthData = HealthStoreManager.shared.healthData
+        let partnerId = getCurrentPartnerId()
+        
+        // 记录今日健康数据
+        healthHistory.recordToday(healthData: healthData)
+        
+        // 应用奖励到当前伙伴
+        let result = partnerAttributes.applyDailyRewards(partnerId: partnerId, healthData: healthData)
+        currentPartnerAttributes = result.attributes
+        
+        // 如果升级了，显示动画
+        if result.leveledUp {
+            levelUpInfo = (result.attributes.level - 1, result.attributes.level)
+            showLevelUpAnimation = true
+            HapticManager.shared.success()
+        }
+        
+        lastProcessedDate = Date()
+        
+        // 重新生成对话（包含历史数据）
+        generateDialogue(for: healthData)
     }
 
     /// 监听健康数据变化
@@ -100,18 +171,22 @@ class GameStateManager: ObservableObject {
         showChestAnimation = false
     }
 
-    /// 生成AI对话（使用新的角色类型系统）
+    /// 生成AI对话（使用新的角色类型系统，结合历史数据）
     func generateDialogue(for healthData: HealthData) {
         isLoadingDialogue = true
         
         let characterType = UserSettings.shared.selectedCharacterType
         let healthLevel = HealthLevel.from(score: healthData.overallScore)
+        
+        // 获取历史数据分析（最近7天）
+        let historyAnalysis = healthHistory.analyzeRecent(days: 7)
 
         Task {
             let dialogue = await aiService.generateDialogue(
                 characterType: characterType,
                 healthLevel: healthLevel,
-                healthData: healthData
+                healthData: healthData,
+                historyAnalysis: historyAnalysis
             )
 
             await MainActor.run {

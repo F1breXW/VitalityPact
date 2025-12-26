@@ -242,6 +242,44 @@ struct DebugPanelView: View {
                             .lineLimit(1)
                     }
                 }
+                
+                // 金币和角色管理（调试用）
+                if healthManager.debugMode {
+                    Section("金币管理") {
+                        VStack(alignment: .leading) {
+                            Text("金币数量: \(healthManager.healthData.goldCoins)")
+                                .font(.headline)
+                            
+                            Stepper(value: $healthManager.healthData.goldCoins, in: 0...99999, step: 100) {
+                                Text("调整金币")
+                            }
+                            
+                            HStack {
+                                Button("设为 500") {
+                                    healthManager.healthData.goldCoins = 500
+                                }
+                                .buttonStyle(.bordered)
+                                
+                                Button("设为 1000") {
+                                    healthManager.healthData.goldCoins = 1000
+                                }
+                                .buttonStyle(.bordered)
+                                
+                                Button("设为 5000") {
+                                    healthManager.healthData.goldCoins = 5000
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                        }
+                    }
+                    
+                    Section("角色管理") {
+                        Button("🔓 解锁所有图片角色") {
+                            ImageCharacterManager.shared.unlockAllCharacters()
+                        }
+                        .foregroundColor(.blue)
+                    }
+                }
 
                 // 演示场景
                 Section("演示场景预设") {
@@ -300,6 +338,99 @@ struct DebugPanelView: View {
                         gameState.showReward()
                     }
                 }
+                
+                // 伙伴成长系统管理
+                Section("伙伴成长系统") {
+                    if let attributes = gameState.currentPartnerAttributes {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("当前伙伴属性")
+                                .font(.headline)
+                            
+                            HStack {
+                                Text("等级")
+                                Spacer()
+                                Text("LV.\(attributes.level)")
+                                    .fontWeight(.bold)
+                            }
+                            
+                            HStack {
+                                Text("经验值")
+                                Spacer()
+                                Text("\(attributes.experience)/\(attributes.experienceToNextLevel)")
+                            }
+                            
+                            HStack {
+                                Text("战力")
+                                Spacer()
+                                Text("\(attributes.totalPower)")
+                                    .fontWeight(.bold)
+                            }
+                            
+                            HStack {
+                                Text("活跃天数")
+                                Spacer()
+                                Text("\(attributes.totalDaysActive)天")
+                            }
+                        }
+                    }
+                    
+                    Button("手动触发今日奖励计算") {
+                        gameState.processDailyRewards()
+                    }
+                    
+                    NavigationLink("编辑伙伴属性") {
+                        PartnerAttributeEditor()
+                    }
+                    
+                    Button("重置所有伙伴属性", role: .destructive) {
+                        PartnerAttributesManager.shared.resetAllPartners()
+                        gameState.loadCurrentPartnerAttributes()
+                    }
+                }
+                
+                // 历史数据管理
+                Section("健康历史数据") {
+                    let recentRecords = HealthHistoryManager.shared.getRecentRecords(days: 7)
+                    
+                    if !recentRecords.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("最近7天记录")
+                                .font(.headline)
+                            
+                            ForEach(recentRecords.prefix(3)) { record in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(formatDate(record.date))
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                    HStack {
+                                        Text("步数:\(record.steps)")
+                                        Text("睡眠:\(String(format: "%.1f", record.sleepHours))h")
+                                        Text("运动:\(record.exerciseMinutes)min")
+                                    }
+                                    .font(.caption)
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    } else {
+                        Text("暂无历史记录")
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Button("查看历史数据分析") {
+                        let analysis = HealthHistoryManager.shared.analyzeRecent(days: 7)
+                        print("=== 健康历史分析 ===")
+                        print(analysis.generateSummaryText())
+                    }
+                    
+                    NavigationLink("加载预设历史记录") {
+                        HistoryPresetsView()
+                    }
+                    
+                    Button("清空所有历史记录", role: .destructive) {
+                        HealthHistoryManager.shared.clearAllRecords()
+                    }
+                }
             }
             .navigationTitle("控制台")
             .navigationBarTitleDisplayMode(.inline)
@@ -338,6 +469,13 @@ struct DebugPanelView: View {
     
     var currentReward: (icon: String, text: String) {
         userSettings.getReward(for: currentHealthLevel)
+    }
+    
+    /// 格式化日期
+    func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd"
+        return formatter.string(from: date)
     }
     
     /// 退出调试模式，重置到初始状态
@@ -574,6 +712,396 @@ struct QuickSetButton: View {
                 .cornerRadius(8)
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 伙伴属性编辑器
+
+struct PartnerAttributeEditor: View {
+    @EnvironmentObject var gameState: GameStateManager
+    @Environment(\.dismiss) var dismiss
+    
+    @State private var level: Double = 1
+    @State private var experience: Double = 0
+    @State private var strength: Double = 10
+    @State private var vitality: Double = 10
+    @State private var agility: Double = 10
+    @State private var wisdom: Double = 10
+    
+    var body: some View {
+        Form {
+            Section("基础属性") {
+                VStack(alignment: .leading) {
+                    Text("等级: \(Int(level))")
+                        .font(.headline)
+                    Slider(value: $level, in: 1...100, step: 1)
+                }
+                
+                VStack(alignment: .leading) {
+                    Text("经验值: \(Int(experience))")
+                        .font(.headline)
+                    Slider(value: $experience, in: 0...10000, step: 10)
+                }
+            }
+            
+            Section("四维属性") {
+                VStack(alignment: .leading) {
+                    HStack {
+                        Image(systemName: "figure.walk")
+                            .foregroundColor(.red)
+                        Text("力量: \(Int(strength))")
+                            .font(.headline)
+                    }
+                    Slider(value: $strength, in: 1...200, step: 1)
+                }
+                
+                VStack(alignment: .leading) {
+                    HStack {
+                        Image(systemName: "heart.fill")
+                            .foregroundColor(.green)
+                        Text("体质: \(Int(vitality))")
+                            .font(.headline)
+                    }
+                    Slider(value: $vitality, in: 1...200, step: 1)
+                }
+                
+                VStack(alignment: .leading) {
+                    HStack {
+                        Image(systemName: "figure.run")
+                            .foregroundColor(.orange)
+                        Text("敏捷: \(Int(agility))")
+                            .font(.headline)
+                    }
+                    Slider(value: $agility, in: 1...200, step: 1)
+                }
+                
+                VStack(alignment: .leading) {
+                    HStack {
+                        Image(systemName: "brain.head.profile")
+                            .foregroundColor(.purple)
+                        Text("智慧: \(Int(wisdom))")
+                            .font(.headline)
+                    }
+                    Slider(value: $wisdom, in: 1...200, step: 1)
+                }
+            }
+            
+            Section {
+                Button("应用修改") {
+                    applyChanges()
+                    dismiss()
+                }
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle("编辑伙伴属性")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            loadCurrentAttributes()
+        }
+    }
+    
+    private func loadCurrentAttributes() {
+        if let attributes = gameState.currentPartnerAttributes {
+            level = Double(attributes.level)
+            experience = Double(attributes.experience)
+            strength = Double(attributes.strength)
+            vitality = Double(attributes.vitality)
+            agility = Double(attributes.agility)
+            wisdom = Double(attributes.wisdom)
+        }
+    }
+    
+    private func applyChanges() {
+        guard var attributes = gameState.currentPartnerAttributes else { return }
+        
+        attributes.level = Int(level)
+        attributes.experience = Int(experience)
+        attributes.strength = Int(strength)
+        attributes.vitality = Int(vitality)
+        attributes.agility = Int(agility)
+        attributes.wisdom = Int(wisdom)
+        
+        PartnerAttributesManager.shared.updateAttributes(attributes)
+        gameState.loadCurrentPartnerAttributes()
+    }
+}
+
+// MARK: - 历史记录预设视图
+
+struct HistoryPresetsView: View {
+    @EnvironmentObject var gameState: GameStateManager
+    @Environment(\.dismiss) var dismiss
+    
+    var body: some View {
+        List {
+            Section("睡眠相关预设") {
+                PresetButton(
+                    title: "😴 连续睡眠不足",
+                    description: "连续7天睡眠<6小时",
+                    color: .red
+                ) {
+                    loadPreset(.lackOfSleep)
+                }
+                
+                PresetButton(
+                    title: "😪 间歇性睡眠不足",
+                    description: "7天中有4天睡眠<6小时",
+                    color: .orange
+                ) {
+                    loadPreset(.intermittentSleepIssues)
+                }
+                
+                PresetButton(
+                    title: "😊 睡眠改善中",
+                    description: "从睡眠不足逐渐改善",
+                    color: .green
+                ) {
+                    loadPreset(.sleepImproving)
+                }
+                
+                PresetButton(
+                    title: "🌙 完美睡眠",
+                    description: "连续7天睡眠≥8小时",
+                    color: .blue
+                ) {
+                    loadPreset(.perfectSleep)
+                }
+            }
+            
+            Section("步数相关预设") {
+                PresetButton(
+                    title: "🚶 连续步数不足",
+                    description: "连续7天步数<5000",
+                    color: .red
+                ) {
+                    loadPreset(.lackOfSteps)
+                }
+                
+                PresetButton(
+                    title: "🏃 步数逐渐增加",
+                    description: "步数呈上升趋势",
+                    color: .green
+                ) {
+                    loadPreset(.stepsImproving)
+                }
+                
+                PresetButton(
+                    title: "💪 完美运动",
+                    description: "连续7天步数≥10000",
+                    color: .blue
+                ) {
+                    loadPreset(.perfectSteps)
+                }
+            }
+            
+            Section("综合状态预设") {
+                PresetButton(
+                    title: "😰 全面低迷",
+                    description: "睡眠、步数、运动都不足",
+                    color: .red
+                ) {
+                    loadPreset(.allPoor)
+                }
+                
+                PresetButton(
+                    title: "📈 全面改善",
+                    description: "各项数据都在改善",
+                    color: .green
+                ) {
+                    loadPreset(.allImproving)
+                }
+                
+                PresetButton(
+                    title: "⭐️ 完美状态",
+                    description: "所有指标都达标",
+                    color: .blue
+                ) {
+                    loadPreset(.allPerfect)
+                }
+                
+                PresetButton(
+                    title: "📉 状态下滑",
+                    description: "从好状态逐渐下滑",
+                    color: .orange
+                ) {
+                    loadPreset(.declining)
+                }
+            }
+        }
+        .navigationTitle("历史记录预设")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+    
+    private func loadPreset(_ preset: HistoryPreset) {
+        let records = preset.generateRecords()
+        HealthHistoryManager.shared.clearAllRecords()
+        
+        for record in records {
+            // 直接插入历史记录
+            HealthHistoryManager.shared.insertRecord(record)
+        }
+        
+        // 重新生成对话
+        gameState.generateDialogue(for: HealthStoreManager.shared.healthData)
+        
+        dismiss()
+    }
+}
+
+struct PresetButton: View {
+    let title: String
+    let description: String
+    let color: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(color)
+                Text(description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+}
+
+// MARK: - 历史记录预设数据
+
+enum HistoryPreset {
+    case lackOfSleep          // 连续睡眠不足
+    case intermittentSleepIssues  // 间歇性睡眠不足
+    case sleepImproving       // 睡眠改善中
+    case perfectSleep         // 完美睡眠
+    case lackOfSteps          // 连续步数不足
+    case stepsImproving       // 步数改善中
+    case perfectSteps         // 完美步数
+    case allPoor              // 全面低迷
+    case allImproving         // 全面改善
+    case allPerfect           // 完美状态
+    case declining            // 状态下滑
+    
+    func generateRecords() -> [DailyHealthRecord] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        var records: [DailyHealthRecord] = []
+        
+        for i in (0...6).reversed() {
+            let date = calendar.date(byAdding: .day, value: -i, to: today)!
+            let record: DailyHealthRecord
+            
+            switch self {
+            case .lackOfSleep:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 7000 + Int.random(in: -1000...1000),
+                    sleepHours: Double.random(in: 4.0...5.5),
+                    exerciseMinutes: 20 + Int.random(in: -5...10),
+                    overallScore: 40 + Int.random(in: -10...10)
+                )
+                
+            case .intermittentSleepIssues:
+                let sleep = [4.5, 7.5, 5.0, 8.0, 5.5, 7.0, 5.5][6-i]
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 7000 + Int.random(in: -1000...1000),
+                    sleepHours: sleep,
+                    exerciseMinutes: 25,
+                    overallScore: Int((sleep / 8.0) * 50) + 30
+                )
+                
+            case .sleepImproving:
+                let sleep = 5.0 + Double(i) * 0.5
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 8000,
+                    sleepHours: sleep,
+                    exerciseMinutes: 30,
+                    overallScore: 50 + i * 5
+                )
+                
+            case .perfectSleep:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 9000 + Int.random(in: -500...1000),
+                    sleepHours: Double.random(in: 8.0...9.0),
+                    exerciseMinutes: 40 + Int.random(in: -5...15),
+                    overallScore: 85 + Int.random(in: -5...10)
+                )
+                
+            case .lackOfSteps:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: Int.random(in: 2000...4500),
+                    sleepHours: 7.0,
+                    exerciseMinutes: 15,
+                    overallScore: 35 + Int.random(in: -5...10)
+                )
+                
+            case .stepsImproving:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 5000 + i * 800,
+                    sleepHours: 7.0,
+                    exerciseMinutes: 25 + i * 5,
+                    overallScore: 50 + i * 6
+                )
+                
+            case .perfectSteps:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 10000 + Int.random(in: 0...3000),
+                    sleepHours: 7.5,
+                    exerciseMinutes: 50 + Int.random(in: -10...15),
+                    overallScore: 90 + Int.random(in: -5...10)
+                )
+                
+            case .allPoor:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: Int.random(in: 1500...3000),
+                    sleepHours: Double.random(in: 4.0...5.5),
+                    exerciseMinutes: Int.random(in: 5...15),
+                    overallScore: Int.random(in: 20...35)
+                )
+                
+            case .allImproving:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 4000 + i * 900,
+                    sleepHours: 5.5 + Double(i) * 0.4,
+                    exerciseMinutes: 15 + i * 6,
+                    overallScore: 40 + i * 8
+                )
+                
+            case .allPerfect:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 10000 + Int.random(in: 0...2000),
+                    sleepHours: Double.random(in: 8.0...9.0),
+                    exerciseMinutes: 50 + Int.random(in: -5...20),
+                    overallScore: 90 + Int.random(in: -2...8)
+                )
+                
+            case .declining:
+                record = DailyHealthRecord(
+                    date: date,
+                    steps: 10000 - i * 1000,
+                    sleepHours: 8.5 - Double(i) * 0.5,
+                    exerciseMinutes: 60 - i * 8,
+                    overallScore: 90 - i * 10
+                )
+            }
+            
+            records.append(record)
+        }
+        
+        return records
     }
 }
 

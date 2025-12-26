@@ -366,6 +366,13 @@ struct MainGameView: View {
                         showChat: $showChat,
                         healthLevel: healthLevel
                     )
+                    
+                    // 伙伴属性面板（迷你版）
+                    if let attributes = gameState.currentPartnerAttributes {
+                        PartnerStatsMini(attributes: attributes)
+                            .padding(.horizontal)
+                            .padding(.top, 8)
+                    }
 
                     Spacer()
 
@@ -412,6 +419,16 @@ struct MainGameView: View {
                 // 宝箱动画
                 if gameState.showChestAnimation {
                     ChestAnimationView()
+                }
+                
+                // 升级动画
+                if gameState.showLevelUpAnimation,
+                   let levelInfo = gameState.levelUpInfo {
+                    LevelUpAnimationView(
+                        oldLevel: levelInfo.oldLevel,
+                        newLevel: levelInfo.newLevel,
+                        isPresented: $gameState.showLevelUpAnimation
+                    )
                 }
             }
         }
@@ -477,85 +494,109 @@ struct TopStatusBar: View {
     @Binding var showChat: Bool
     let healthLevel: HealthLevel
     @State private var debugTapCount = 0
-    @State private var secretTapCount = 0  // 隐藏开启调试模式的计数器
+    @State private var showHealthHistory = false  // 显示健康历史
+    @State private var showCoinInfo = false  // 显示金币获取说明
 
     var body: some View {
-        HStack {
-            // 金币显示
-            HStack(spacing: 5) {
-                Text("🪙")
-                Text("\(healthManager.healthData.goldCoins)")
-                    .fontWeight(.bold)
+        HStack(spacing: 8) {
+            // 金币显示 - 点击查看如何获得金币
+            Button {
+                showCoinInfo = true
+            } label: {
+                HStack(spacing: 5) {
+                    Text("🪙")
+                    Text("\(healthManager.healthData.goldCoins)")
+                        .fontWeight(.bold)
+                        .font(.system(size: 14))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.black.opacity(0.3))
+                .cornerRadius(15)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .buttonStyle(PlainButtonStyle())
+            .alert("如何获得金币？", isPresented: $showCoinInfo) {
+                Button("知道了", role: .cancel) { }
+            } message: {
+                Text("""
+                通过保持健康的生活习惯来赚取金币：
+                
+                🦶 步数奖励：
+                   每走10步 = 1金币
+                   （例如：10,000步 = 1,000金币）
+                
+                😴 睡眠奖励：
+                   • ≥8小时：+50金币
+                   • 7-8小时：+30金币
+                   • 6-7小时：+10金币
+                
+                🏃 运动奖励：
+                   • ≥60分钟：+50金币
+                   • 30-60分钟：+30金币
+                   • 15-30分钟：+10金币
+                
+                💰 用途：解锁精美的图片角色
+                
+                💡 小贴士：全方位保持健康习惯，
+                   每天最高可获得1000+金币！
+                """)
+            }
+
+            Spacer()
+            
+            // 健康历史按钮
+            Button {
+                showHealthHistory = true
+            } label: {
+                Image(systemName: "chart.xyaxis.line")
+                    .font(.system(size: 15))
+            }
+            .padding(8)
             .background(Color.black.opacity(0.3))
-            .cornerRadius(20)
-
-            Spacer()
-
-            // 健康等级指示（连续点击5次可开启调试模式）
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(healthLevel.color)
-                    .frame(width: 8, height: 8)
-                Text(healthLevel.displayName)
-                    .font(.caption)
+            .cornerRadius(8)
+            .sheet(isPresented: $showHealthHistory) {
+                HealthHistoryView()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(healthLevel.color.opacity(0.2))
-            .cornerRadius(20)
-            .onTapGesture {
-                secretTapCount += 1
-                if secretTapCount >= 5 {
-                    healthManager.debugMode = true
-                    secretTapCount = 0
-                    // 给用户一个反馈
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
-                }
-                // 2秒后重置计数
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                    secretTapCount = 0
-                }
-            }
-
-            Spacer()
 
             // 聊天按钮
             Button {
                 showChat = true
             } label: {
                 Image(systemName: "message.fill")
-                    .font(.system(size: 16))
+                    .font(.system(size: 15))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(8)
             .background(Color.black.opacity(0.3))
             .cornerRadius(8)
 
-            // 设置按钮
+            // 设置按钮 - 长按开启调试模式
             Button {
                 showSettings = true
             } label: {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 16))
+                    .font(.system(size: 15))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(8)
             .background(Color.black.opacity(0.3))
             .cornerRadius(8)
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 2.0)
+                    .onEnded { _ in
+                        healthManager.debugMode = true
+                        // 给用户震动反馈
+                        let generator = UINotificationFeedbackGenerator()
+                        generator.notificationOccurred(.success)
+                    }
+            )
 
             // 角色切换按钮
             Button {
                 showCharacterPicker = true
             } label: {
                 Text(userSettings.selectedCharacterType.icon)
-                    .font(.title2)
+                    .font(.system(size: 20))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(6)
             .background(Color.black.opacity(0.3))
             .cornerRadius(8)
             
@@ -697,18 +738,31 @@ struct DataPanelView: View {
             // 综合评分和奖励按钮
             HStack {
                 // 健康指数
-                HStack {
+                HStack(spacing: 4) {
                     Text("健康指数")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.8))
                     Text("\(healthManager.healthData.overallScore)")
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.title)
+                        .fontWeight(.heavy)
                         .foregroundColor(healthLevel.color)
+                        .shadow(color: healthLevel.color.opacity(0.3), radius: 2, x: 0, y: 1)
                     Text("/ 100")
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundColor(.white.opacity(0.6))
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.black.opacity(0.3))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(healthLevel.color.opacity(0.3), lineWidth: 1)
+                        )
+                )
                 
                 Spacer()
                 

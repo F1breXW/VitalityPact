@@ -29,6 +29,7 @@ class ChatManager: ObservableObject {
     @Published var isLoading = false
     
     private let aiService = AIService.shared
+    private let healthHistory = HealthHistoryManager.shared
     
     /// 发送消息并获取回复
     func sendMessage(_ content: String, characterType: CharacterType, healthData: HealthData) async {
@@ -39,13 +40,17 @@ class ChatManager: ObservableObject {
             isLoading = true
         }
         
+        // 获取历史数据分析
+        let historyAnalysis = healthHistory.analyzeRecent(days: 7)
+        
         // 获取 AI 回复
         do {
             let reply = try await aiService.chat(
                 userMessage: content,
                 characterType: characterType,
                 healthData: healthData,
-                conversationHistory: messages
+                conversationHistory: messages,
+                historyAnalysis: historyAnalysis
             )
             
             let aiMessage = ChatMessage(content: reply, isUser: false)

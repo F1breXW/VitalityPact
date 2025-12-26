@@ -383,35 +383,133 @@ struct ImageCharacterCard: View {
     let isSelected: Bool
     let action: () -> Void
     
+    @ObservedObject var characterManager = ImageCharacterManager.shared
+    @EnvironmentObject var healthManager: HealthStoreManager
+    @State private var showUnlockAlert = false
+    @State private var unlockSucceeded = false
+    
+    var isUnlocked: Bool {
+        characterManager.isUnlocked(character)
+    }
+    
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                // 预览图片
-                CharacterImageView(character: character, healthLevel: .good)
-                    .frame(width: 80, height: 80)
-                    .clipShape(Circle())
-                
-                Text(character.name)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-                
-                Text(character.description)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+        Button(action: {
+            if isUnlocked {
+                action()
+            } else {
+                showUnlockAlert = true
             }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(isSelected ? character.themeColor.opacity(0.2) : Color(UIColor.tertiarySystemBackground))
-            .cornerRadius(15)
-            .overlay(
-                RoundedRectangle(cornerRadius: 15)
-                    .stroke(isSelected ? character.themeColor : Color.clear, lineWidth: 2)
-            )
+        }) {
+            ZStack {
+                VStack(spacing: 10) {
+                    // 预览图片
+                    ZStack {
+                        CharacterImageView(character: character, healthLevel: .good)
+                            .frame(width: 80, height: 80)
+                            .clipShape(Circle())
+                        
+                        // 未解锁遮罩
+                        if !isUnlocked {
+                            Circle()
+                                .fill(Color.black.opacity(0.6))
+                                .frame(width: 80, height: 80)
+                            
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                        }
+                    }
+                    
+                    Text(character.name)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    
+                    if isUnlocked {
+                        Text(character.description)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+                    } else {
+                        HStack(spacing: 4) {
+                            Text("🪙")
+                            Text("\(character.unlockCost)")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(.orange)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(
+                    isSelected && isUnlocked 
+                        ? character.themeColor.opacity(0.2) 
+                        : Color(UIColor.tertiarySystemBackground)
+                )
+                .cornerRadius(15)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 15)
+                        .stroke(
+                            isSelected && isUnlocked ? character.themeColor : Color.clear, 
+                            lineWidth: 2
+                        )
+                )
+                
+                // 未解锁角标
+                if !isUnlocked {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "lock.circle.fill")
+                                .foregroundColor(.orange)
+                                .font(.system(size: 20))
+                                .padding(8)
+                        }
+                        Spacer()
+                    }
+                }
+            }
         }
         .foregroundColor(.primary)
+        .alert(isPresented: $showUnlockAlert) {
+            if unlockSucceeded {
+                return Alert(
+                    title: Text("解锁成功！"),
+                    message: Text("已成功解锁 \(character.name)"),
+                    dismissButton: .default(Text("确定")) {
+                        action()
+                        unlockSucceeded = false
+                    }
+                )
+            } else {
+                let currentCoins = healthManager.healthData.goldCoins
+                let needCoins = character.unlockCost
+                
+                if currentCoins >= needCoins {
+                    return Alert(
+                        title: Text("解锁角色"),
+                        message: Text("确定要花费 \(needCoins) 金币解锁 \(character.name) 吗？\n当前金币：\(currentCoins)"),
+                        primaryButton: .default(Text("确认解锁")) {
+                            if characterManager.unlock(character, goldCoins: currentCoins) {
+                                // 扣除金币
+                                healthManager.healthData.goldCoins -= needCoins
+                                unlockSucceeded = true
+                                showUnlockAlert = true
+                            }
+                        },
+                        secondaryButton: .cancel(Text("取消"))
+                    )
+                } else {
+                    return Alert(
+                        title: Text("金币不足"),
+                        message: Text("解锁需要 \(needCoins) 金币，你当前只有 \(currentCoins) 金币。\n继续保持健康习惯来赚取金币吧！"),
+                        dismissButton: .default(Text("确定"))
+                    )
+                }
+            }
+        }
     }
 }
 

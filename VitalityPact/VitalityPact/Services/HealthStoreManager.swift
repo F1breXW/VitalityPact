@@ -74,12 +74,15 @@ class HealthStoreManager: ObservableObject {
         // 如果是调试模式，使用调试数据
         if debugMode {
             await MainActor.run {
-                self.healthData = HealthData(
+                var newData = HealthData(
                     steps: Int(self.debugSteps),
                     sleepHours: self.debugSleepHours,
                     exerciseMinutes: Int(self.debugExerciseMinutes),
-                    heartRate: Int(self.debugHeartRate)
+                    heartRate: Int(self.debugHeartRate),
+                    goldCoins: self.healthData.goldCoins
                 )
+                newData.updateGoldCoins()
+                self.healthData = newData
                 self.isLoading = false
             }
             return
@@ -93,12 +96,15 @@ class HealthStoreManager: ObservableObject {
         let (stepsResult, sleepResult, exerciseResult, heartRateResult) = await (steps, sleep, exercise, heartRate)
 
         await MainActor.run {
-            self.healthData = HealthData(
+            var newData = HealthData(
                 steps: stepsResult,
                 sleepHours: sleepResult,
                 exerciseMinutes: exerciseResult,
-                heartRate: heartRateResult
+                heartRate: heartRateResult,
+                goldCoins: self.healthData.goldCoins  // 保留现有金币
             )
+            newData.updateGoldCoins()  // 根据步数更新金币
+            self.healthData = newData
             self.isLoading = false
         }
     }
@@ -206,12 +212,15 @@ class HealthStoreManager: ObservableObject {
     /// 更新调试数据（演示用）
     func updateDebugData() {
         if debugMode {
-            healthData = HealthData(
+            var newData = HealthData(
                 steps: Int(debugSteps),
                 sleepHours: debugSleepHours,
                 exerciseMinutes: Int(debugExerciseMinutes),
-                heartRate: Int(debugHeartRate)
+                heartRate: Int(debugHeartRate),
+                goldCoins: healthData.goldCoins  // 保留现有金币
             )
+            newData.updateGoldCoins()  // 根据步数更新金币
+            healthData = newData
         }
     }
 }
