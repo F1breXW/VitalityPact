@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcodebuild -project VitalityPact.xcodeproj -scheme VitalityPact clean build)",
+      "Bash(find /Users/henryking/project/yeyeye/VitalityPact -name \"Info.plist\" -type f -exec ls -la {} ;)",
+      "Bash(chmod 644 /Users/henryking/project/yeyeye/VitalityPact/VitalityPact.xcodeproj/project.pbxproj)",
+      "Bash(find /Users/henryking/project/yeyeye/VitalityPact -name \"*.swift\" -type f -exec basename {})"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
